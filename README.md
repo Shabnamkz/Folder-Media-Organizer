@@ -68,7 +68,3 @@ Requires `tkinter`, which ships with the standard python.org installer (not alwa
 - Nothing is renamed, moved, or created without an explicit confirmation dialog.
 - Sorting and renaming both write a hidden undo log (`.foldermaker_undo.json` / `.foldermaker_rename_undo.json`) in the working folder, which the in-app **Undo** button reads.
 - No files are ever overwritten — if a destination name/path already exists, that file is skipped and reported rather than replaced.
-
-## License
-
-Add a license of your choice here (MIT is a common pick for small utilities like this).
