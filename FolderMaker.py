@@ -79,11 +79,12 @@ def detect_episode(filename):
     if SPECIAL.search(stem) or SPECIAL.search(_strip(stem)):
         return None, "special / extra"
 
-    # Explicit SxxExx / 1x05 markers are unambiguous, so check the raw stem
-    # first - before parentheses/brackets get stripped out. Otherwise a name
-    # like "Show (S1.E5)" loses its marker when "(S1.E5)" is removed as if
-    # it were junk like "(1080p)".
-    for pat, has_season in PATTERNS[:2]:
+    # Try every marker pattern against the raw stem first, before any
+    # cleanup happens. This matters because cleanup strips out parenthesised
+    # text like "(1080p)" as noise - but release names also put real episode
+    # markers in parentheses, e.g. "(S1.E5)" or "(E600)". If we only cleaned
+    # first, those markers would be deleted before we ever got to read them.
+    for pat, _ in PATTERNS:
         m = pat.search(stem)
         if m:
             return int(m.group("e")), ""
