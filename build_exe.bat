@@ -3,6 +3,13 @@ REM ============================================================
 REM  Builds FolderMaker.exe from FolderMaker.py
 REM  Put this file in the SAME folder as FolderMaker.py,
 REM  then double-click it.
+REM
+REM  Releasing: the exe's version comes from APP_VERSION in
+REM  FolderMaker.py. To publish an update, bump APP_VERSION,
+REM  rebuild, then create a GitHub release tagged v<major.minor>
+REM  (e.g. v1.2) and attach dist\FolderMaker.exe as an asset
+REM  named exactly "FolderMaker.exe". The running app will then
+REM  offer the update automatically.
 REM ============================================================
 
 cd /d "%~dp0"

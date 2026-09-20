@@ -25,6 +25,10 @@ All three tabs share the same episode-detection engine, which understands common
 
 A **Dark mode** checkbox at the top of the window switches the whole app between light and dark themes -- every tab, table, button, and dialog recolors instantly, and even the native window title bar follows along. Your choice is remembered for next time.
 
+## Auto-update
+
+The built exe checks for a newer release on startup. If one's available, it asks to install it, downloads the new `FolderMaker.exe`, swaps it in place, and relaunches -- no manual download needed. (This only runs in the built exe, not when running from source.) The version offered is determined by `APP_VERSION` in `FolderMaker.py`, which must match the GitHub release tag.
+
 ## Screenshots
 
 *(Add a screenshot or two here once you have them — drag an image into this section on GitHub and it'll embed automatically.)*
