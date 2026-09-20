@@ -21,6 +21,10 @@ All three tabs share the same episode-detection engine, which understands common
 - Release-group tags like `[SubsPlease]`, `[1080p]`, `[x265]` are ignored automatically
 - Openings, endings, specials, and OVAs (`NCOP`, `NCED`, `OVA`, `SP`, etc.) are detected and skipped rather than misfiled
 
+## Dark mode
+
+A **Dark mode** checkbox at the top of the window switches the whole app between light and dark themes -- every tab, table, button, and dialog recolors instantly, and even the native window title bar follows along. Your choice is remembered for next time.
+
 ## Screenshots
 
 *(Add a screenshot or two here once you have them — drag an image into this section on GitHub and it'll embed automatically.)*

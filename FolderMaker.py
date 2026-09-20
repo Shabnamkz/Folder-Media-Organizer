@@ -2,18 +2,198 @@
 """
 FolderMaker - create numbered folders, and sort episode files into them.
 
-Run:   python FolderMaker.py
-Build: pyinstaller --onefile --windowed --name FolderMaker FolderMaker.py
+Run:   python main.py
+Build: pyinstaller --onefile --windowed --name FolderMaker --icon FolderMaker.ico --add-data "FolderMaker.ico;." main.py
 """
 
 import json
 import os
 import re
 import shutil
+import sys
 import tkinter as tk
 from datetime import datetime
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinter.ttk import Combobox
+
+
+def app_icon():
+    """Path to the bundled icon when frozen to an exe, else None."""
+    if getattr(sys, "frozen", False):
+        p = os.path.join(sys._MEIPASS, "FolderMaker.ico")
+        return p if os.path.isfile(p) else None
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "FolderMaker.ico")
+    return here if os.path.isfile(here) else None
+
+
+# ----------------------------------------------------------------------
+# Theming - light & dark palettes applied to ttk styles, classic tk
+# widgets (via tk_setPalette) and the native Windows title bar.
+# ----------------------------------------------------------------------
+
+PREFS_FILE = os.path.join(os.path.expanduser("~"), ".foldermaker_prefs.json")
+
+LIGHT = {
+    "bg": "#f0f0f0", "field": "#ffffff", "tree": "#ffffff", "header": "#f5f5f5",
+    "btn": "#e1e1e1", "btn_hover": "#d9eaf9", "btn_pressed": "#c4e0f7",
+    "tab": "#e2e2e2", "fg": "#000000", "muted": "#555555", "hint": "#777777",
+    "disabled": "#9a9a9a", "border": "#c8c8c8", "select": "#0078d4",
+    "accent": "#0078d4", "bad": "#b00020", "warn": "#a06000",
+}
+
+DARK = {
+    "bg": "#2e2e2e", "field": "#252525", "tree": "#252525", "header": "#3a3a3a",
+    "btn": "#3d3d3d", "btn_hover": "#4a4a4a", "btn_pressed": "#2f2f2f",
+    "tab": "#373737", "fg": "#e0e0e0", "muted": "#b0b0b0", "hint": "#909090",
+    "disabled": "#6e6e6e", "border": "#454545", "select": "#1068c8",
+    "accent": "#3a9bef", "bad": "#ff6b6b", "warn": "#ffb454",
+}
+
+
+def load_prefs():
+    try:
+        with open(PREFS_FILE, encoding="utf-8") as f:
+            p = json.load(f)
+        return p if isinstance(p, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_prefs(prefs):
+    try:
+        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f)
+    except OSError:
+        pass
+
+
+def walk_widgets(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from walk_widgets(child)
+
+
+def apply_theme(root, style, dark):
+    """Recolor everything: ttk styles, classic tk widgets, tree tags."""
+    p = DARK if dark else LIGHT
+
+    style.theme_use("clam")  # fully colorable base, unlike 'vista'
+
+    style.configure(".", background=p["bg"], foreground=p["fg"],
+                    fieldbackground=p["field"], bordercolor=p["border"],
+                    lightcolor=p["border"], darkcolor=p["border"],
+                    troughcolor=p["bg"])
+
+    style.configure("TButton", background=p["btn"], foreground=p["fg"],
+                    padding=(10, 4), borderwidth=1)
+    style.map("TButton",
+              background=[("pressed", p["btn_pressed"]),
+                          ("active", p["btn_hover"])],
+              foreground=[("disabled", p["disabled"])],
+              bordercolor=[("active", p["accent"])])
+
+    for w in ("TEntry", "TSpinbox"):
+        style.configure(w, fieldbackground=p["field"], foreground=p["fg"],
+                        insertcolor=p["fg"], background=p["btn"],
+                        arrowcolor=p["fg"], borderwidth=1)
+        style.map(w,
+                  fieldbackground=[("disabled", p["bg"])],
+                  foreground=[("disabled", p["disabled"])],
+                  lightcolor=[("focus", p["accent"])],
+                  darkcolor=[("focus", p["accent"])])
+
+    style.configure("TCombobox", fieldbackground=p["field"], foreground=p["fg"],
+                    background=p["btn"], arrowcolor=p["fg"], borderwidth=1)
+    style.map("TCombobox",
+              fieldbackground=[("readonly", p["field"]),
+                               ("disabled", p["bg"])],
+              foreground=[("readonly", p["fg"]),
+                          ("disabled", p["disabled"])],
+              arrowcolor=[("active", p["accent"])])
+    # the popdown list is a classic tk listbox, styled via the option DB
+    root.option_add("*TCombobox*Listbox.background", p["field"])
+    root.option_add("*TCombobox*Listbox.foreground", p["fg"])
+    root.option_add("*TCombobox*Listbox.selectBackground", p["select"])
+    root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
+
+    style.configure("TCheckbutton", background=p["bg"], foreground=p["fg"])
+    style.map("TCheckbutton",
+              background=[("active", p["bg"])],
+              foreground=[("disabled", p["disabled"])],
+              indicatorcolor=[("selected", p["accent"])])
+
+    style.configure("TNotebook", background=p["bg"], borderwidth=0)
+    style.configure("TNotebook.Tab", background=p["tab"], foreground=p["muted"],
+                    padding=(14, 7), borderwidth=0)
+    style.map("TNotebook.Tab",
+              background=[("selected", p["btn_hover"])],
+              foreground=[("selected", p["fg"])])
+
+    style.configure("Treeview", background=p["tree"], foreground=p["fg"],
+                    fieldbackground=p["tree"], rowheight=24, borderwidth=1)
+    style.configure("Treeview.Heading", background=p["header"],
+                    foreground=p["fg"], relief="flat", padding=(6, 4),
+                    borderwidth=1)
+    style.map("Treeview.Heading", background=[("active", p["btn_hover"])])
+    style.map("Treeview", background=[("selected", p["select"])],
+              foreground=[("selected", "#ffffff")])
+
+    style.configure("Vertical.TScrollbar", background=p["btn"],
+                    troughcolor=p["bg"], bordercolor=p["bg"],
+                    lightcolor=p["btn"], darkcolor=p["btn"],
+                    arrowcolor=p["fg"])
+    style.map("Vertical.TScrollbar",
+              background=[("active", p["btn_hover"]),
+                          ("pressed", p["btn_pressed"])])
+
+    style.configure("TSeparator", background=p["border"])
+    style.configure("Status.TLabel", background=p["bg"], foreground=p["muted"])
+    style.configure("Hint.TLabel", background=p["bg"], foreground=p["hint"])
+
+    # Classic tk widgets (listboxes here, dialogs elsewhere) - one call
+    # recolors them all, including ones created later like dialog entries.
+    try:
+        root.tk_setPalette(background=p["bg"], foreground=p["fg"],
+                           selectBackground=p["select"],
+                           selectForeground="#ffffff",
+                           insertBackground=p["fg"],
+                           highlightBackground=p["border"],
+                           highlightColor=p["accent"],
+                           troughColor=p["bg"])
+    except tk.TclError:
+        pass
+
+    # per-widget bits that styles can't reach
+    for w in walk_widgets(root):
+        if isinstance(w, tk.Listbox):
+            w.configure(background=p["tree"], foreground=p["fg"],
+                        selectbackground=p["select"],
+                        selectforeground="#ffffff",
+                        disabledforeground=p["disabled"],
+                        relief="flat", borderwidth=0, highlightthickness=1,
+                        highlightbackground=p["border"],
+                        highlightcolor=p["border"])
+        elif isinstance(w, ttk.Treeview):
+            w.tag_configure("bad", foreground=p["bad"])
+            w.tag_configure("warn", foreground=p["warn"])
+
+
+def set_titlebar_dark(root, dark):
+    """Tint the native Windows title bar to match (Win10 1809+)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        root.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        val = ctypes.c_int(1 if dark else 0)
+        for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (19 on older builds)
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) == 0:
+                break
+    except Exception:
+        pass
 
 ILLEGAL = set('<>:"/\\|?*')
 UNDO_FILE = ".foldermaker_undo.json"
@@ -79,11 +259,12 @@ def detect_episode(filename):
     if SPECIAL.search(stem) or SPECIAL.search(_strip(stem)):
         return None, "special / extra"
 
-    # Explicit SxxExx / 1x05 markers are unambiguous, so check the raw stem
-    # first - before parentheses/brackets get stripped out. Otherwise a name
-    # like "Show (S1.E5)" loses its marker when "(S1.E5)" is removed as if
-    # it were junk like "(1080p)".
-    for pat, has_season in PATTERNS[:2]:
+    # Try every marker pattern against the raw stem first, before any
+    # cleanup happens. This matters because cleanup strips out parenthesised
+    # text like "(1080p)" as noise - but release names also put real episode
+    # markers in parentheses, e.g. "(S1.E5)" or "(E600)". If we only cleaned
+    # first, those markers would be deleted before we ever got to read them.
+    for pat, _ in PATTERNS:
         m = pat.search(stem)
         if m:
             return int(m.group("e")), ""
@@ -169,7 +350,7 @@ class CreateTab(ttk.Frame):
         self.preview.config(yscrollcommand=sb.set)
         r += 1
 
-        ttk.Label(self, textvariable=self.status_var, foreground="#555",
+        ttk.Label(self, textvariable=self.status_var, style="Status.TLabel",
                   wraplength=560).grid(row=r, column=0, columnspan=3,
                                        sticky="w", pady=(10, 6))
         r += 1
@@ -312,19 +493,17 @@ class SortTab(ttk.Frame):
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         sb.grid(row=r, column=2, sticky="nsw")
         self.tree.config(yscrollcommand=sb.set)
-        self.tree.tag_configure("bad", foreground="#b00020")
-        self.tree.tag_configure("warn", foreground="#a06000")
         self.tree.bind("<Double-1>", self.edit_row)
         self.rowconfigure(r, weight=1)
         r += 1
 
         ttk.Label(self, text="Double-click a row to set its number by hand. "
                              "Rows in red are skipped.",
-                  foreground="#777").grid(row=r, column=0, columnspan=3,
+                  style="Hint.TLabel").grid(row=r, column=0, columnspan=3,
                                           sticky="w", pady=(6, 0))
         r += 1
 
-        ttk.Label(self, textvariable=self.status_var, foreground="#555",
+        ttk.Label(self, textvariable=self.status_var, style="Status.TLabel",
                   wraplength=560).grid(row=r, column=0, columnspan=3,
                                        sticky="w", pady=(8, 8))
         r += 1
@@ -614,7 +793,7 @@ class RenameTab(ttk.Frame):
         ttk.Label(row3, text="{name} = show name above, {season} = season, "
                              "{ep} = episode number. You can type your own "
                              "format too.",
-                  foreground="#777", wraplength=560).pack(side="left")
+                  style="Hint.TLabel", wraplength=560).pack(side="left")
         ttk.Button(row3, text="Scan", command=self.scan).pack(side="right")
         r += 1
 
@@ -633,19 +812,17 @@ class RenameTab(ttk.Frame):
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         sb.grid(row=r, column=2, sticky="nsw")
         self.tree.config(yscrollcommand=sb.set)
-        self.tree.tag_configure("bad", foreground="#b00020")
-        self.tree.tag_configure("warn", foreground="#a06000")
         self.tree.bind("<Double-1>", self.edit_row)
         self.rowconfigure(r, weight=1)
         r += 1
 
         ttk.Label(self, text="Double-click a row to fix its episode number "
                              "by hand. Rows in red are skipped.",
-                  foreground="#777").grid(row=r, column=0, columnspan=3,
+                  style="Hint.TLabel").grid(row=r, column=0, columnspan=3,
                                           sticky="w", pady=(6, 0))
         r += 1
 
-        ttk.Label(self, textvariable=self.status_var, foreground="#555",
+        ttk.Label(self, textvariable=self.status_var, style="Status.TLabel",
                   wraplength=560).grid(row=r, column=0, columnspan=3,
                                        sticky="w", pady=(8, 8))
         r += 1
@@ -852,19 +1029,42 @@ class RenameTab(ttk.Frame):
 # ----------------------------------------------------------------------
 
 def main():
+    prefs = load_prefs()
+    dark = bool(prefs.get("dark"))
+
     root = tk.Tk()
     root.title("Folder Maker")
     root.minsize(680, 600)
-    try:
-        ttk.Style().theme_use("vista")
-    except tk.TclError:
-        pass
+    icon = app_icon()
+    if icon:
+        try:
+            root.iconbitmap(default=icon)
+        except tk.TclError:
+            pass
+
+    style = ttk.Style(root)
+
+    header = ttk.Frame(root, padding=(14, 10, 14, 0))
+    header.pack(fill="x")
+    dark_var = tk.BooleanVar(value=dark)
+
+    def toggle_theme():
+        d = dark_var.get()
+        apply_theme(root, style, d)
+        set_titlebar_dark(root, d)
+        save_prefs({"dark": d})
+
+    ttk.Checkbutton(header, text="Dark mode", variable=dark_var,
+                    command=toggle_theme).pack(side="right")
 
     nb = ttk.Notebook(root)
-    nb.pack(fill="both", expand=True)
+    nb.pack(fill="both", expand=True, padx=10, pady=(4, 10))
     nb.add(CreateTab(nb), text="  Create folders  ")
     nb.add(SortTab(nb), text="  Sort files into folders  ")
     nb.add(RenameTab(nb), text="  Rename files  ")
+
+    apply_theme(root, style, dark)
+    root.after(150, lambda: set_titlebar_dark(root, dark))
     root.mainloop()
 
 

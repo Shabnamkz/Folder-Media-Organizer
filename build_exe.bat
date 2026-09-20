@@ -33,7 +33,7 @@ if errorlevel 1 (
 
 echo.
 echo === Building ===
-python -m PyInstaller --onefile --windowed --name FolderMaker --clean FolderMaker.py
+python -m PyInstaller --onefile --windowed --name FolderMaker --clean --icon FolderMaker.ico --add-data "FolderMaker.ico;." FolderMaker.py
 if errorlevel 1 (
     echo.
     echo Build failed. Scroll up to see the error.
