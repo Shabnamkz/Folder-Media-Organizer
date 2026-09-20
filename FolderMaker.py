@@ -51,6 +51,20 @@ DARK = {
 }
 
 
+def set_file_hidden(path, hidden):
+    """Toggle the Windows hidden attribute (a leading dot hides nothing
+    there). A hidden file also refuses to be truncated by open(..., "w"),
+    so callers must unhide it before rewriting."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        attrs = 0x2 if hidden else 0x80  # FILE_ATTRIBUTE_HIDDEN / NORMAL
+        ctypes.windll.kernel32.SetFileAttributesW(os.path.abspath(path), attrs)
+    except Exception:
+        pass
+
+
 def load_prefs():
     try:
         with open(PREFS_FILE, encoding="utf-8") as f:
@@ -62,8 +76,10 @@ def load_prefs():
 
 def save_prefs(prefs):
     try:
+        set_file_hidden(PREFS_FILE, False)
         with open(PREFS_FILE, "w", encoding="utf-8") as f:
             json.dump(prefs, f)
+        set_file_hidden(PREFS_FILE, True)
     except OSError:
         pass
 
@@ -658,9 +674,12 @@ class SortTab(ttk.Frame):
                 failed += 1
 
         if log["moves"] or log["folders"]:
+            undo_path = os.path.join(src, UNDO_FILE)
             try:
-                with open(os.path.join(src, UNDO_FILE), "w", encoding="utf-8") as f:
+                set_file_hidden(undo_path, False)  # can't truncate while hidden
+                with open(undo_path, "w", encoding="utf-8") as f:
                     json.dump(log, f, indent=1)
+                set_file_hidden(undo_path, True)
             except OSError:
                 pass
 
@@ -973,10 +992,12 @@ class RenameTab(ttk.Frame):
                 failed += 1
 
         if log["renames"]:
+            undo_path = os.path.join(src, RENAME_UNDO_FILE)
             try:
-                with open(os.path.join(src, RENAME_UNDO_FILE), "w",
-                         encoding="utf-8") as f:
+                set_file_hidden(undo_path, False)  # can't truncate while hidden
+                with open(undo_path, "w", encoding="utf-8") as f:
                     json.dump(log, f, indent=1)
+                set_file_hidden(undo_path, True)
             except OSError:
                 pass
 
