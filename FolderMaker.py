@@ -60,7 +60,7 @@ PREFS_FILE = os.path.join(os.path.expanduser("~"), ".foldermaker_prefs.json")
 # The exe checks GitHub on startup and, if a newer release exists, downloads
 # it and swaps itself in place. Version is a manual constant that must match
 # the GitHub release tag (v1.3 -> "1.3.0").
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 REPO = "Shabnamkz/Folder-Media-Organizer"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASE_PAGE = f"https://github.com/{REPO}/releases/latest"
