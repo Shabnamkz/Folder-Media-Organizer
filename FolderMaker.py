@@ -59,8 +59,8 @@ PREFS_FILE = os.path.join(os.path.expanduser("~"), ".foldermaker_prefs.json")
 # --- Auto-update ---------------------------------------------------------
 # The exe checks GitHub on startup and, if a newer release exists, downloads
 # it and swaps itself in place. Version is a manual constant that must match
-# the GitHub release tag (v1.2 -> "1.2.0").
-APP_VERSION = "1.2.0"
+# the GitHub release tag (v1.3 -> "1.3.0").
+APP_VERSION = "1.3.0"
 REPO = "Shabnamkz/Folder-Media-Organizer"
 RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASE_PAGE = f"https://github.com/{REPO}/releases/latest"
@@ -269,6 +269,21 @@ def _tab_image_set(root, p, s):
                                ("selected", "btn_hover"))}
 
 
+def _button_image_set(root, p, s, states):
+    """Build {state: PhotoImage} rounded button backgrounds for one palette.
+    states maps state name -> (fill_key, border_key) into the palette."""
+    br = max(4, round(6 * s))          # corner radius
+    bw, bh = 4 * br + 24, 2 * br + 22
+    imgs = {}
+    for state, (fill_key, border_key) in states.items():
+        outer = _rounded_rect(0.5, 0.5, bw - 0.5, bh - 0.5, br)
+        inner = _rounded_rect(1.5, 1.5, bw - 1.5, bh - 1.5, max(1.0, br - 1))
+        imgs[state] = _render(root, bw, bh, p["bg"],
+                              [(_hex_rgb(p[border_key]), outer),
+                               (_hex_rgb(p[fill_key]), inner)])
+    return imgs
+
+
 def _install_custom_controls(root, style):
     """Create the rounded checkbutton and tab image elements once, for both
     palettes. Elements bake in their images at creation and ttk has no way
@@ -276,12 +291,15 @@ def _install_custom_controls(root, style):
     PhotoImages on a later call would orphan (and destroy) the ones the
     live elements still use, blanking the controls out."""
     wanted = ("Checkbutton.round.light", "Checkbutton.round.dark",
-              "Notebook.roundtab.light", "Notebook.roundtab.dark")
+              "Notebook.roundtab.light", "Notebook.roundtab.dark",
+              "Button.round.light", "Button.round.dark",
+              "Button.accent.light", "Button.accent.dark")
     if all(n in style.element_names() for n in wanted):
         return  # already installed
 
     s = _dpi_scale(root)
     keep = []
+    br = max(4, round(6 * s))
 
     for suffix, pal in (("light", LIGHT), ("dark", DARK)):
         off, on, off_dis, on_dis = _check_image_set(root, pal, s)
@@ -299,6 +317,36 @@ def _install_custom_controls(root, style):
             ("selected", tabs["selected"]),
             border=max(5, round(8 * s)), sticky="news")
 
+        # secondary buttons: btn fill, border-colored; hover/pressed variants
+        sec = _button_image_set(root, pal, s, {
+            "": ("btn", "border"),
+            ("active",): ("btn_hover", "border"),
+            ("pressed",): ("btn_pressed", "border"),
+            ("disabled",): ("btn", "border"),
+        })
+        keep += list(sec.values())
+        style.element_create(
+            f"Button.round.{suffix}", "image", sec[""],
+            ("active", sec[("active",)]),
+            ("pressed", sec[("pressed",)]),
+            ("disabled", sec[("disabled",)]),
+            border=br, sticky="news")
+
+        # primary (accent) buttons: filled purple, white text
+        acc = _button_image_set(root, pal, s, {
+            "": ("accent", "accent"),
+            ("active",): ("accent_hover", "accent_hover"),
+            ("pressed",): ("accent_pressed", "accent_pressed"),
+            ("disabled",): ("btn", "border"),
+        })
+        keep += list(acc.values())
+        style.element_create(
+            f"Button.accent.{suffix}", "image", acc[""],
+            ("active", acc[("active",)]),
+            ("pressed", acc[("pressed",)]),
+            ("disabled", acc[("disabled",)]),
+            border=br, sticky="news")
+
     style._round_ctrl_images = keep  # prevent PhotoImage GC
 
 
@@ -309,11 +357,18 @@ def _restyle_elements(root, style, dark):
     suffix = "dark" if dark else "light"
     check_elem = f"Checkbutton.round.{suffix}"
     tab_elem = f"Notebook.roundtab.{suffix}"
+    btn_elem = f"Button.round.{suffix}"
+    acc_elem = f"Button.accent.{suffix}"
 
     def swap(node, old_names, new):
         elem, opts = node[0], dict(node[1])
         if elem in old_names:
             elem = new
+            # The original Button.border carried border:'1' in the layout
+            # node; on an image element that overrides the 9-slice inset to
+            # 1px, so the opaque center paints over the label text. Drop it
+            # so the element's creation-time border=br is used instead.
+            opts.pop("border", None)
         if opts.get("children"):
             opts["children"] = [swap(c, old_names, new) for c in opts["children"]]
         return (elem, opts)
@@ -329,6 +384,14 @@ def _restyle_elements(root, style, dark):
     layout = style.layout("TNotebook.Tab")
     style.layout("TNotebook.Tab", [swap(n, tab_old, tab_elem)
                                    for n in layout])
+
+    btn_old = {"Button.border", "Button.round.light", "Button.round.dark",
+               "Button.accent.light", "Button.accent.dark"}
+    layout = style.layout("TButton")
+    style.layout("TButton", [swap(n, btn_old, btn_elem) for n in layout])
+    layout = style.layout("Accent.TButton")
+    style.layout("Accent.TButton", [swap(n, btn_old, acc_elem)
+                                    for n in layout])
 
 
 def apply_theme(root, style, dark):
@@ -786,6 +849,8 @@ class SortTab(ttk.Frame):
         self.undo_btn = ttk.Button(bar, text="Undo Last Sort", command=self.undo)
         self.undo_btn.pack(side="left")
         self.undo_btn.state(["disabled"])
+        self.ignore_btn = ttk.Button(bar, text="Ignore Conflicts",
+                                     command=self.ignore_conflicts)
         self.go = ttk.Button(bar, text="Organize Files", style="Accent.TButton",
                              command=self.organize)
         self.go.pack(side="right")
@@ -852,6 +917,13 @@ class SortTab(ttk.Frame):
                                      dest),
                              tags=(tag,) if tag else ())
 
+        # Show Ignore Conflicts only when there are rows we can't process.
+        skipped = [i for i, r in enumerate(self.rows) if r["ep"] is None]
+        if skipped:
+            self.ignore_btn.pack(side="left", padx=(8, 0))
+        else:
+            self.ignore_btn.pack_forget()
+
         ok = [r for r in self.rows if r["ep"] is not None]
         if not self.rows:
             self.status_var.set("No video or subtitle files found here.")
@@ -863,6 +935,11 @@ class SortTab(ttk.Frame):
             msg += f" {len(self.rows) - len(ok)} will be skipped."
         self.status_var.set(msg)
         self.go.state(["!disabled"] if ok else ["disabled"])
+
+    def ignore_conflicts(self):
+        """Drop every row we can't process, leaving a clean list."""
+        self.rows = [r for r in self.rows if r["ep"] is not None]
+        self.fill_table()
 
     def edit_row(self, _event):
         sel = self.tree.selection()
@@ -1000,14 +1077,25 @@ class SortTab(ttk.Frame):
                 removed += 1
             except OSError:
                 pass
-        try:
-            os.remove(path)
-        except OSError:
-            pass
 
-        messagebox.showinfo(
-            "Undo", f"Restored {back} files and removed {removed} empty folders.")
+        if back == 0 and log["moves"]:
+            # Files couldn't be found at their logged paths -- they may have
+            # been renamed since the sort. Keep the undo record so the user
+            # can retry after undoing the rename.
+            messagebox.showinfo(
+                "Undo",
+                "Could not restore any files -- they may have been renamed "
+                "since the sort. Try undoing the rename first.")
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            messagebox.showinfo(
+                "Undo", f"Restored {back} files and removed {removed} empty folders.")
         self.scan()
+        if hasattr(self, "peer_refresh"):
+            self.peer_refresh()
 
 
 # ----------------------------------------------------------------------
@@ -1120,6 +1208,8 @@ class RenameTab(ttk.Frame):
         self.undo_btn = ttk.Button(bar, text="Undo Last Rename", command=self.undo)
         self.undo_btn.pack(side="left")
         self.undo_btn.state(["disabled"])
+        self.ignore_btn = ttk.Button(bar, text="Ignore Conflicts",
+                                     command=self.ignore_conflicts)
         self.go = ttk.Button(bar, text="Rename Files", style="Accent.TButton",
                              command=self.rename)
         self.go.pack(side="right")
@@ -1200,6 +1290,17 @@ class RenameTab(ttk.Frame):
                 for i in idxs:
                     self.tree.item(str(i), tags=("bad",))
 
+        # Remember which rows are conflicting so Ignore Conflicts can drop them.
+        bad = {i for i, r in enumerate(self.rows) if r["ep"] is None}
+        for new, idxs in seen_new_names.items():
+            if len(idxs) > 1:
+                bad.update(idxs)
+        self._conflicts = bad
+        if bad:
+            self.ignore_btn.pack(side="left", padx=(8, 0))
+        else:
+            self.ignore_btn.pack_forget()
+
         ok = [r for r in self.rows if r["ep"] is not None]
         if not self.rows:
             self.status_var.set("No matching files found here.")
@@ -1211,6 +1312,12 @@ class RenameTab(ttk.Frame):
             msg += f" {collisions} would collide on the same name - fix those first."
         self.status_var.set(msg)
         self.go.state(["!disabled"] if ok and not collisions else ["disabled"])
+
+    def ignore_conflicts(self):
+        """Drop every conflicting row so the rest can be processed."""
+        bad = getattr(self, "_conflicts", set())
+        self.rows = [r for i, r in enumerate(self.rows) if i not in bad]
+        self.fill_table()
 
     def edit_row(self, _event):
         sel = self.tree.selection()
@@ -1317,13 +1424,24 @@ class RenameTab(ttk.Frame):
                     back += 1
                 except OSError:
                     pass
-        try:
-            os.remove(path)
-        except OSError:
-            pass
 
-        messagebox.showinfo("Undo", f"Restored {back} original file names.")
+        if back == 0 and log["renames"]:
+            # Files couldn't be found at their logged paths -- they may have
+            # been moved into folders since the rename. Keep the undo record
+            # so the user can retry after undoing the sort.
+            messagebox.showinfo(
+                "Undo",
+                "Could not restore any files -- they may have been moved "
+                "into folders since the rename. Try undoing the sort first.")
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            messagebox.showinfo("Undo", f"Restored {back} original file names.")
         self.scan()
+        if hasattr(self, "peer_refresh"):
+            self.peer_refresh()
 
 
 # ----------------------------------------------------------------------
@@ -1523,8 +1641,16 @@ def main():
     shared_dir.trace_add("write", persist_dir)
 
     nb.add(CreateTab(nb, shared_dir), text="  Create Folders  ")
-    nb.add(RenameTab(nb, shared_dir), text="  Rename Files  ")
-    nb.add(SortTab(nb, shared_dir), text="  Sort Files into Folders  ")
+    rename_tab = RenameTab(nb, shared_dir)
+    sort_tab = SortTab(nb, shared_dir)
+    nb.add(rename_tab, text="  Rename Files  ")
+    nb.add(sort_tab, text="  Sort Files into Folders  ")
+
+    # After an undo on one tab, the other tab's undo button may need to
+    # re-enable (e.g. undoing a sort restores files the rename undo can
+    # now reach) or re-disable (the undo record was just consumed).
+    rename_tab.peer_refresh = sort_tab.refresh_undo
+    sort_tab.peer_refresh = rename_tab.refresh_undo
 
     apply_theme(root, style, dark)
     root.after(150, lambda: set_titlebar_dark(root, dark))
