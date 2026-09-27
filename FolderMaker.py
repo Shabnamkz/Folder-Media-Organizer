@@ -1460,13 +1460,13 @@ set DEST=%3
 :wait
 tasklist /fi "PID eq %PID%" 2>nul | find "%PID%" >nul
 if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
+    ping -n 2 127.0.0.1 >nul
     goto wait
 )
 :copy
 copy /y "%NEW%" "%DEST%" >nul 2>&1
 if errorlevel 1 (
-    timeout /t 1 /nobreak >nul
+    ping -n 2 127.0.0.1 >nul
     goto copy
 )
 start "" "%DEST%"
@@ -1486,7 +1486,7 @@ def _version_tuple(s):
     return tuple(parts[:3])
 
 
-def check_for_updates(root):
+def check_for_updates(root, prefs):
     """If frozen, quietly ask GitHub whether a newer release exists.
     Runs off the UI thread; only touches the UI when there's news."""
     if not getattr(sys, "frozen", False):
@@ -1503,21 +1503,33 @@ def check_for_updates(root):
                 data = _json.load(r)
             tag = data.get("tag_name", "")
             if _version_tuple(tag) > _version_tuple(APP_VERSION):
-                root.after(0, lambda: _offer_update(root, tag))
+                # Honour a previously-saved "skip this version" choice.
+                if prefs.get("skip_update") == tag:
+                    return
+                root.after(0, lambda: _offer_update(root, tag, prefs))
         except Exception:
             pass  # offline, rate-limited, malformed - never nag
 
     threading.Thread(target=worker, daemon=True).start()
 
 
-def _offer_update(root, tag):
-    if messagebox.askyesno(
-            "Update Available",
-            f"A new version is available.\n\n"
-            f"Current: {APP_VERSION}\n"
-            f"Latest:  {tag.lstrip('vV')}\n\n"
-            f"Download and install now?"):
+def _offer_update(root, tag, prefs):
+    choice = messagebox.askyesnocancel(
+        "Update Available",
+        f"A new version is available.\n\n"
+        f"Current: {APP_VERSION}\n"
+        f"Latest:  {tag.lstrip('vV')}\n\n"
+        f"Download and install now?\n\n"
+        f"Yes = update now   No = skip this version   "
+        f"Cancel = ask me next time")
+    if choice is None:
+        return  # Cancel: ask again next launch
+    if choice:
         _run_update(root)
+    else:
+        # No: remember the skip so this version stops nagging.
+        prefs["skip_update"] = tag
+        save_prefs(prefs)
 
 
 def _run_update(root):
@@ -1654,7 +1666,7 @@ def main():
 
     apply_theme(root, style, dark)
     root.after(150, lambda: set_titlebar_dark(root, dark))
-    check_for_updates(root)
+    check_for_updates(root, prefs)
     root.mainloop()
 
 
